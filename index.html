@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>gPTP Slave Monitor + PID (Web Serial)</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel2: #1c232d;
+    --border: #2a323d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #2f81f7;
+    --yellow: #e3b341;
+    --green: #3fb950;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 14px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .spacer { flex: 1; }
+  button, select {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: var(--red); border-color: var(--red); color: #fff; }
+  .status {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--muted);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); }
+  .dot.on { background: var(--green); }
+  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; padding: 10px 20px 0; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .tab { background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 10px 16px; font-size: 14px; cursor: pointer; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tabpage[hidden] { display: none; }
+  .about p, .about li { color: var(--text); line-height: 1.6; font-size: 14px; }
+  .about ul, .about ol { margin: 0; padding-left: 20px; }
+  .about li { margin-bottom: 6px; }
+  .about code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .card {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .card.hl { border-color: var(--yellow); }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .info {
+    position: absolute; top: 10px; right: 12px;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid var(--border); color: var(--muted);
+    font: italic 700 11px Georgia, serif;
+    display: flex; align-items: center; justify-content: center; cursor: help;
+  }
+  .card .tip {
+    position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+    background: #0a0d11; border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 11px; font-size: 12px; color: var(--text); line-height: 1.45;
+    text-align: left; opacity: 0; visibility: hidden; transition: opacity .15s;
+    z-index: 30; box-shadow: 0 6px 18px rgba(0,0,0,.5);
+  }
+  .card:hover .tip { opacity: 1; visibility: visible; }
+  .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .card .unit { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  canvas { width: 100%; height: 220px; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+  .table-wrap { max-height: 320px; overflow: auto; }
+  #raw {
+    background: #0a0d11; border: 1px solid var(--border); border-radius: 6px;
+    height: 160px; overflow: auto; padding: 10px; font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px; color: #9fb0c0; white-space: pre-wrap; word-break: break-all;
+  }
+  .cmd-row { display: flex; gap: 8px; margin-top: 10px; }
+  .cmd-row input {
+    flex: 1; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 8px 10px; font-family: monospace; font-size: 13px;
+  }
+  .warn {
+    background: #3a1d1d; border: 1px solid var(--red); color: #ffb3b3;
+    padding: 12px 16px; border-radius: 8px; margin: 20px; display: none;
+  }
+  /* PID panel */
+  .pid-grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+  .pid-field { display: flex; flex-direction: column; gap: 6px; }
+  .pid-field label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .pid-field input {
+    width: 130px; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 9px 10px; font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .pid-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .pid-presets button { font-size: 12px; padding: 6px 10px; }
+  .pid-status { margin-top: 12px; font-size: 13px; color: var(--muted); min-height: 18px; }
+  .pid-status.ok { color: var(--green); }
+  .pid-status.err { color: var(--red); }
+  .toggle-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>gPTP Slave Monitor <span style="color:var(--muted);font-weight:400;font-size:14px">+ PID</span></h1>
+  <div class="status"><span id="dot" class="dot"></span><span id="statusText">Disconnected</span></div>
+  <div class="spacer"></div>
+  <label class="status">Baud
+    <select id="baud">
+      <option>9600</option>
+      <option selected>115200</option>
+      <option>230400</option>
+      <option>460800</option>
+      <option>921600</option>
+    </select>
+  </label>
+  <button id="logBtn" disabled>Enable Log</button>
+  <button id="clearBtn">Clear</button>
+  <button id="connectBtn" class="primary">Connect</button>
+</header>
+
+<div id="unsupported" class="warn">
+  This browser does not support the Web Serial API. Please open this page in
+  <b>Google Chrome</b> or <b>Microsoft Edge</b> (desktop).
+</div>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="monitor">Live Monitor</button>
+  <button class="tab" data-tab="about">About the Demo</button>
+</nav>
+
+<main>
+  <div id="tab-monitor" class="tabpage">
+  <div class="cards" id="cards"></div>
+
+  <div class="panel">
+    <h2>PID servo settings &mdash; <code>ptp servo params</code></h2>
+    <div class="pid-grid">
+      <div class="pid-field">
+        <label for="pidKp">Kp (proportional)</label>
+        <input id="pidKp" type="number" step="0.001" value="0.238" />
+      </div>
+      <div class="pid-field">
+        <label for="pidKi">Ki (integral)</label>
+        <input id="pidKi" type="number" step="0.001" value="0.000" />
+      </div>
+      <div class="pid-field">
+        <label for="pidKd">Kd (derivative)</label>
+        <input id="pidKd" type="number" step="0.001" value="3.000" />
+      </div>
+      <button id="pidRead" disabled>Read</button>
+      <button id="pidApply" class="primary" disabled>Apply</button>
+    </div>
+    <div class="pid-presets">
+      <span class="status">Presets:</span>
+      <button data-kp="0.238" data-ki="0" data-kd="3.0">Default (0.238 / 0 / 3.0)</button>
+      <button data-kp="0.119" data-ki="0" data-kd="3.0">Soft P</button>
+      <button data-kp="0.238" data-ki="0.02" data-kd="3.0">With I-term</button>
+      <button data-kp="0.4" data-ki="0" data-kd="4.0">Aggressive</button>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="internalsChk" />
+      <label for="internalsChk">Log servo internals (<code>ptp servo log internals on/off</code>)</label>
+    </div>
+    <div id="pidStatus" class="pid-status"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Offset &Delta;t [ns] over time</h2>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>History</h2>
+    <div class="table-wrap">
+      <table id="histTable">
+        <thead><tr id="histHead"></tr></thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Raw serial</h2>
+    <div id="raw"></div>
+    <div class="cmd-row">
+      <input id="cmdInput" placeholder="Type a CLI command (e.g. ptp log def on) and press Enter" />
+      <button id="sendBtn" disabled>Send</button>
+    </div>
+  </div>
+  </div><!-- /tab-monitor -->
+
+  <div id="tab-about" class="tabpage about" hidden>
+    <div class="panel">
+      <h2>What this demo shows</h2>
+      <p>This board runs <b>gPTP (IEEE&nbsp;802.1AS)</b> time synchronization over a
+      <b>10BASE-T1S</b> single-pair Ethernet link. Several nodes share one multidrop bus
+      using PLCA; one node acts as the <b>grandmaster</b> clock and the others discipline
+      their local clocks to it. The goal is sub-microsecond time alignment across all
+      nodes, shown live in the <b>Live Monitor</b> tab.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Roles &amp; topology</h2>
+      <ul>
+        <li><b>Node&nbsp;0 &mdash; Grandmaster (master):</b> owns the reference clock and
+        periodically sends <code>Sync</code> / <code>Follow_Up</code> messages (~every 125&nbsp;ms).</li>
+        <li><b>Nodes&nbsp;1..N &mdash; Slaves:</b> receive Sync, measure their offset from the
+        master and steer their own clock to match.</li>
+        <li>The T1S PLCA node ID is read from flash at boot and determines the role.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2>How a slave locks on</h2>
+      <p>Each slave measures the time error &Delta;t between its clock and the master. A
+      <b>PID servo</b> then computes a frequency correction (<code>corr_ppb</code>) that is
+      written to the hardware clock rate register (<code>addend</code>). Over a few seconds
+      the offset converges toward zero and the clock stays locked. A corrected 1&nbsp;PPS
+      output toggles <b>LED10</b> once per second &mdash; in sync across all locked nodes.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Reading the Monitor</h2>
+      <ul>
+        <li><b>&Delta;t offset</b> &mdash; current time error; trends to ~0&nbsp;ns once locked.
+        Hover any card for a description.</li>
+        <li><b>addend</b> &mdash; clock rate word the servo tunes.</li>
+        <li><b>corr_ppb</b> &mdash; servo output in parts-per-billion.</li>
+        <li><b>mpd_ns</b> &mdash; measured link (path) delay.</li>
+        <li><b>sync_period</b> &mdash; interval between Sync messages (~125&nbsp;ms).</li>
+        <li>The chart plots &Delta;t on a fixed &plusmn;200&nbsp;ns scale; the table keeps recent raw rows.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2>Tuning the servo (PID)</h2>
+      <p>The <b>PID servo settings</b> panel reads and changes the servo gains live via
+      <code>ptp servo params Kp Ki Kd</code>. A larger <code>Kp</code> reacts faster but can
+      overshoot; <code>Kd</code> adds damping; <code>Ki</code> removes steady-state bias.
+      Start from a preset and watch the offset chart respond.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Getting started</h2>
+      <ol>
+        <li>Connect the board's USB serial port and click <b>Connect</b> (115200&nbsp;baud).</li>
+        <li>Click <b>Enable Log</b> to stream the per-Sync table (<code>ptp log def on</code>).</li>
+        <li>Watch the &Delta;t offset converge; adjust the PID gains if desired.</li>
+      </ol>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+// Column layout of the slave "ptp log def" table (11 integer fields).
+const FIELDS = [
+  { key: "t1s",    label: "T1 [s]",         unit: "s"    },
+  { key: "t1ns",   label: "T1 [ns]",        unit: "ns"   },
+  { key: "t4s",    label: "T4 [s]",         unit: "s"    },
+  { key: "t4ns",   label: "T4 [ns]",        unit: "ns"   },
+  { key: "dts",    label: "\u0394t [s]",    unit: "s"    },
+  { key: "dtns",   label: "\u0394t [ns]",   unit: "ns", hl: true },
+  { key: "dttick", label: "\u0394t [tick]", unit: "tick" },
+  { key: "addend", label: "addend",         unit: ""     },
+  { key: "corr",   label: "corr_ppb",       unit: "ppb"  },
+  { key: "mpd",    label: "mpd_ns",         unit: "ns"   },
+  { key: "sync",   label: "sync_period_ns", unit: "ns"   },
+];
+
+// Consolidated dashboard cards with tooltips.
+const CARDS = [
+  { id: "dt", label: "\u0394t offset", unit: "ns", hl: true,
+    tip: "\u0394t \u2014 measured time offset of the slave relative to the master. The servo drives this toward 0 ns.",
+    render: (r) => (r.dts !== 0 ? `${r.dts} s ` : "") + r.dtns.toLocaleString() },
+  { id: "dttick", label: "\u0394t [tick]", unit: "tick",
+    tip: "The \u0394t offset expressed in hardware clock ticks (PTP_CLOCK_TICK_FREQ_HZ).",
+    render: (r) => r.dttick.toLocaleString() },
+  { id: "addend", label: "addend", unit: "",
+    tip: "GTI rate register (DCO word). The servo tunes this to speed up or slow down the slave clock frequency.",
+    render: (r) => r.addend.toLocaleString() },
+  { id: "corr", label: "corr_ppb", unit: "ppb",
+    tip: "PID servo frequency-correction output, in parts-per-billion.",
+    render: (r) => r.corr.toLocaleString() },
+  { id: "mpd", label: "mpd_ns", unit: "ns",
+    tip: "Mean path delay (peer-to-peer link delay) between master and slave, in nanoseconds.",
+    render: (r) => r.mpd.toLocaleString() },
+  { id: "sync", label: "sync_period", unit: "ms",
+    tip: "Measured interval between consecutive Sync messages, in milliseconds (nominal ~125 ms).",
+    render: (r) => (r.sync / 1e6).toFixed(3) },
+];
+const MAX_HISTORY = 200;
+const MAX_CHART = 300;
+
+const $ = (id) => document.getElementById(id);
+let port = null, reader = null, writer = null, keepReading = false;
+const history = [];
+const chartData = [];
+
+/* ---------- UI build ---------- */
+function buildCards() {
+  const c = $("cards");
+  c.innerHTML = "";
+  for (const cd of CARDS) {
+    const el = document.createElement("div");
+    el.className = "card" + (cd.hl ? " hl" : "");
+    el.title = cd.tip; // native tooltip fallback
+    el.innerHTML =
+      `<span class="info">i</span>` +
+      `<div class="tip">${cd.tip}</div>` +
+      `<div class="label">${cd.label}</div>` +
+      `<div class="value"><span id="c_${cd.id}">--</span>` +
+      (cd.unit ? `<span class="unit">${cd.unit}</span>` : "") + `</div>`;
+    c.appendChild(el);
+  }
+  const head = $("histHead");
+  head.innerHTML = "<th>#</th>" + FIELDS.map((f) => `<th>${f.label}</th>`).join("");
+}
+
+/* ---------- Serial ---------- */
+async function connect() {
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: parseInt($("baud").value, 10) });
+    writer = port.writable.getWriter();
+    keepReading = true;
+    setConnected(true);
+    readLoop();
+  } catch (e) {
+    appendRaw("[connect error] " + e.message + "\n");
+    setConnected(false);
+  }
+}
+
+async function disconnect() {
+  keepReading = false;
+  try { if (reader) await reader.cancel(); } catch (e) {}
+  try { if (writer) { writer.releaseLock(); writer = null; } } catch (e) {}
+  try { if (port) await port.close(); } catch (e) {}
+  port = null;
+  setConnected(false);
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (keepReading && port.readable) {
+      reader = port.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx;
+          while ((idx = buffer.indexOf("\n")) >= 0) {
+            handleLine(buffer.slice(0, idx));
+            buffer = buffer.slice(idx + 1);
+          }
+        }
+      } catch (e) {
+        appendRaw("[read error] " + e.message + "\n");
+      } finally {
+        reader.releaseLock();
+        reader = null;
+      }
+    }
+  } catch (e) {
+    appendRaw("[loop error] " + e.message + "\n");
+  }
+}
+
+async function send(text) {
+  if (!writer) return;
+  const data = new TextEncoder().encode(text);
+  await writer.write(data);
+}
+
+/* ---------- Parsing ---------- */
+// Match any ANSI/VT100 escape sequence (color, cursor save/restore \x1b[s \x1b[u, etc.).
+const ANSI = /\x1b(?:\[[0-9;?]*[ -\/]*[@-~]|[@-Z\\-_])/g;
+// Match the "ptp servo params" query/echo response.
+const PID_RE = /K_p\s*=\s*(-?[\d.]+)[^]*?K_i\s*=\s*(-?[\d.]+)[^]*?K_d\s*=\s*(-?[\d.]+)/;
+
+function handleLine(raw) {
+  // Strip escape sequences, then any remaining control chars (keep tab).
+  const clean = raw.replace(ANSI, "").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+  appendRaw(clean + "\n");
+
+  // PID params response -> populate the editor fields.
+  const pm = clean.match(PID_RE);
+  if (pm) {
+    $("pidKp").value = pm[1];
+    $("pidKi").value = pm[2];
+    $("pidKd").value = pm[3];
+    setPidStatus(`Read back: Kp=${pm[1]} Ki=${pm[2]} Kd=${pm[3]}`, "ok");
+    return;
+  }
+
+  // Drop CLI prompt(s) and surrounding whitespace.
+  const line = clean.replace(/^[>\s]+/, "").trim();
+  if (!line) return;
+  const parts = line.split(/\s+/);
+  if (parts.length === FIELDS.length && parts.every((p) => /^-?\d+$/.test(p))) {
+    updateData(parts.map(Number));
+  }
+}
+
+function updateData(vals) {
+  const row = {};
+  FIELDS.forEach((f, i) => { row[f.key] = vals[i]; });
+  CARDS.forEach((cd) => { $("c_" + cd.id).textContent = cd.render(row); });
+  // Color the offset card by magnitude.
+  const dtCard = $("c_dt").closest(".card");
+  const a = Math.abs(row.dtns);
+  dtCard.style.borderColor = a < 200 ? "var(--green)" : a < 2000 ? "var(--yellow)" : "var(--red)";
+
+  history.unshift(row);
+  if (history.length > MAX_HISTORY) history.pop();
+  chartData.push(row.dtns);
+  if (chartData.length > MAX_CHART) chartData.shift();
+  renderHistory();
+  drawChart();
+}
+
+/* ---------- History table ---------- */
+let rowCounter = 0;
+function renderHistory() {
+  rowCounter++;
+  const body = $("histBody");
+  const tr = document.createElement("tr");
+  const r = history[0];
+  tr.innerHTML = `<td>${rowCounter}</td>` +
+    FIELDS.map((f) => `<td>${r[f.key].toLocaleString()}</td>`).join("");
+  body.prepend(tr);
+  while (body.children.length > MAX_HISTORY) body.removeChild(body.lastChild);
+}
+
+/* ---------- Chart ---------- */
+function drawChart() {
+  const cv = $("chart");
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  if (chartData.length < 2) return;
+
+  const pad = 30;
+  // Fixed Y-axis scale: +/- 200 ns.
+  const min = -200, max = 200;
+  const range = max - min;
+  const x = (i) => pad + (i / (chartData.length - 1)) * (w - pad - 8);
+  const y = (v) => {
+    const c = Math.max(min, Math.min(max, v));
+    return pad + (1 - (c - min) / range) * (h - pad - 20);
+  };
+
+  // zero line
+  if (min < 0 && max > 0) {
+    ctx.strokeStyle = "#3a4450"; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(w - 8, y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // axis labels
+  ctx.fillStyle = "#8b949e"; ctx.font = "11px monospace";
+  ctx.fillText(max.toLocaleString() + " ns", 4, pad);
+  ctx.fillText(min.toLocaleString() + " ns", 4, h - 8);
+
+  // line
+  ctx.strokeStyle = "#2f81f7"; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  chartData.forEach((v, i) => { i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)); });
+  ctx.stroke();
+
+  // last point
+  const li = chartData.length - 1;
+  ctx.fillStyle = "#e3b341";
+  ctx.beginPath(); ctx.arc(x(li), y(chartData[li]), 3, 0, Math.PI * 2); ctx.fill();
+}
+
+/* ---------- Raw console ---------- */
+function appendRaw(text) {
+  const el = $("raw");
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+  el.textContent += text;
+  if (el.textContent.length > 20000) el.textContent = el.textContent.slice(-15000);
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- PID ---------- */
+function setPidStatus(msg, cls) {
+  const el = $("pidStatus");
+  el.textContent = msg;
+  el.className = "pid-status" + (cls ? " " + cls : "");
+}
+
+function pidRead() {
+  setPidStatus("Reading current parameters\u2026");
+  send("ptp servo params\r\n");
+}
+
+function pidApply() {
+  const kp = parseFloat($("pidKp").value);
+  const ki = parseFloat($("pidKi").value);
+  const kd = parseFloat($("pidKd").value);
+  if ([kp, ki, kd].some((v) => Number.isNaN(v))) {
+    setPidStatus("Invalid Kp/Ki/Kd value", "err");
+    return;
+  }
+  send(`ptp servo params ${kp} ${ki} ${kd}\r\n`);
+  setPidStatus(`Applied Kp=${kp} Ki=${ki} Kd=${kd}`, "ok");
+}
+
+/* ---------- State ---------- */
+function setConnected(on) {
+  $("dot").classList.toggle("on", on);
+  $("statusText").textContent = on ? "Connected" : "Disconnected";
+  $("connectBtn").textContent = on ? "Disconnect" : "Connect";
+  $("connectBtn").classList.toggle("primary", !on);
+  $("connectBtn").classList.toggle("danger", on);
+  $("logBtn").disabled = !on;
+  $("sendBtn").disabled = !on;
+  $("pidRead").disabled = !on;
+  $("pidApply").disabled = !on;
+  $("baud").disabled = on;
+}
+
+/* ---------- Wire up ---------- */
+window.addEventListener("load", () => {
+  buildCards();
+  if (!("serial" in navigator)) {
+    $("unsupported").style.display = "block";
+    $("connectBtn").disabled = true;
+    return;
+  }
+  $("connectBtn").addEventListener("click", () => (port ? disconnect() : connect()));
+  $("logBtn").addEventListener("click", () => send("ptp log def on\r\n"));
+  $("clearBtn").addEventListener("click", () => {
+    history.length = 0; chartData.length = 0; rowCounter = 0;
+    $("histBody").innerHTML = ""; $("raw").textContent = "";
+    CARDS.forEach((cd) => ($("c_" + cd.id).textContent = "--"));
+    drawChart();
+  });
+  $("sendBtn").addEventListener("click", sendCmd);
+  $("cmdInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendCmd(); });
+  $("pidRead").addEventListener("click", pidRead);
+  $("pidApply").addEventListener("click", pidApply);
+  $("internalsChk").addEventListener("change", (e) =>
+    send("ptp servo log internals " + (e.target.checked ? "on" : "off") + "\r\n"));
+  document.querySelectorAll(".pid-presets button").forEach((b) =>
+    b.addEventListener("click", () => {
+      $("pidKp").value = b.dataset.kp;
+      $("pidKi").value = b.dataset.ki;
+      $("pidKd").value = b.dataset.kd;
+      setPidStatus("Preset loaded \u2014 click Apply to send", "");
+    }));
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
+      document.querySelectorAll(".tabpage").forEach((p) => (p.hidden = p.id !== "tab-" + t.dataset.tab));
+      if (t.dataset.tab === "monitor") drawChart();
+    }));
+  window.addEventListener("resize", drawChart);
+});
+
+function sendCmd() {
+  const inp = $("cmdInput");
+  const v = inp.value.trim();
+  if (!v) return;
+  send(v + "\r\n");
+  inp.value = "";
+}
+</script>
+</body>
+</html>
