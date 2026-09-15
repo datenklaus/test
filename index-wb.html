@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>R-Car U5L T1S gPTP Slave Monitor + PID (Web Bluetooth)</title>
+<style>
+  :root {
+    --bg: #eef0f4;
+    --panel: #ffffff;
+    --panel2: #f4f5f8;
+    --border: #dfe2e8;
+    --text: #1c1d2b;
+    --muted: #6b7280;
+    --accent: #2a289d;
+    --accent-hover: #3d3ac0;
+    --yellow: #b8860b;
+    --green: #1a9d5a;
+    --red: #d13438;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 14px 20px;
+    background: var(--accent);
+    border-top: 4px solid #16155f;
+    border-bottom: 1px solid #16155f;
+    box-shadow: 0 1px 4px rgba(20, 20, 60, 0.18);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  header .logo { height: 30px; width: auto; display: block; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; color: #fff; }
+  header .status { color: rgba(255, 255, 255, 0.85); }
+  header select, header button {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.35);
+  }
+  header select option { color: var(--text); }
+  header button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
+    border-color: #fff;
+  }
+  header button.primary { background: #fff; color: var(--accent); border-color: #fff; }
+  header button.primary:hover:not(:disabled) { background: #e9eaff; color: var(--accent); border-color: #e9eaff; }
+  .spacer { flex: 1; }
+  button, select {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+  button.danger { background: var(--red); border-color: var(--red); color: #fff; }
+  .status {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--muted);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); }
+  .dot.on { background: var(--green); }
+  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; padding: 10px 20px 0; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .tab { background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 10px 16px; font-size: 14px; cursor: pointer; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tabpage[hidden] { display: none; }
+  .about p, .about li { color: var(--text); line-height: 1.6; font-size: 14px; }
+  .about ul, .about ol { margin: 0; padding-left: 20px; }
+  .about li { margin-bottom: 6px; }
+  .about code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .card {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .card.hl { border-color: var(--yellow); }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .info {
+    position: absolute; top: 10px; right: 12px;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid var(--border); color: var(--muted);
+    font: italic 700 11px Georgia, serif;
+    display: flex; align-items: center; justify-content: center; cursor: help;
+  }
+  .card .tip {
+    position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+    background: #1c1d2b; border: 1px solid #1c1d2b; border-radius: 6px;
+    padding: 9px 11px; font-size: 12px; color: #f0f1f5; line-height: 1.45;
+    text-align: left; opacity: 0; visibility: hidden; transition: opacity .15s;
+    z-index: 30; box-shadow: 0 6px 18px rgba(20,20,60,.18);
+  }
+  .card:hover .tip { opacity: 1; visibility: visible; }
+  .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .card .unit { font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  canvas { width: 100%; height: 220px; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+  .table-wrap { max-height: 320px; overflow: auto; }
+  #raw {
+    background: #f7f8fa; border: 1px solid var(--border); border-radius: 6px;
+    height: 160px; overflow: auto; padding: 10px; font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px; color: #3a3f4b; white-space: pre-wrap; word-break: break-all;
+  }
+  .cmd-row { display: flex; gap: 8px; margin-top: 10px; }
+  .cmd-row input {
+    flex: 1; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 8px 10px; font-family: monospace; font-size: 13px;
+  }
+  .warn {
+    background: #fdecea; border: 1px solid var(--red); color: #a3282b;
+    padding: 12px 16px; border-radius: 8px; margin: 20px; display: none;
+  }
+  /* PID panel */
+  .pid-grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+  .pid-field { display: flex; flex-direction: column; gap: 6px; }
+  .pid-field label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .pid-field input {
+    width: 130px; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 9px 10px; font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .pid-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .pid-presets button { font-size: 12px; padding: 6px 10px; }
+  .pid-status { margin-top: 12px; font-size: 13px; color: var(--muted); min-height: 18px; }
+  .pid-status.ok { color: var(--green); }
+  .pid-status.err { color: var(--red); }
+  .toggle-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <img class="logo" src="header-w.svg" alt="Renesas">
+  <h1> U5L T1S Demo - gPTP Slave Monitor <span style="color:rgba(255,255,255,0.7);font-weight:400;font-size:14px"> Node 1</span></h1>
+  <div class="status"><span id="dot" class="dot"></span><span id="statusText">Disconnected</span></div>
+  <div class="spacer"></div>
+  <button id="logBtn" disabled>Start Sync + Log</button>
+  <button id="clearBtn">Clear</button>
+  <button id="connectBtn" class="primary">Connect</button>
+</header>
+
+<div id="unsupported" class="warn">
+  This browser does not support the Web Bluetooth API. Please open this page in
+  <b>Google Chrome</b> or <b>Microsoft Edge</b> (desktop) over HTTPS or localhost.
+</div>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="monitor">Live Monitor</button>
+  <button class="tab" data-tab="about">About the Demo</button>
+</nav>
+
+<main>
+  <div id="tab-monitor" class="tabpage">
+  <div class="cards" id="cards"></div>
+
+  <div class="panel">
+    <h2>PID servo settings &mdash; <code>ptp servo params</code></h2>
+    <div class="pid-grid">
+      <div class="pid-field">
+        <label for="pidKp">Kp (proportional)</label>
+        <input id="pidKp" type="number" step="0.001" value="0.238" />
+      </div>
+      <div class="pid-field">
+        <label for="pidKi">Ki (integral)</label>
+        <input id="pidKi" type="number" step="0.001" value="0.000" />
+      </div>
+      <div class="pid-field">
+        <label for="pidKd">Kd (derivative)</label>
+        <input id="pidKd" type="number" step="0.001" value="3.000" />
+      </div>
+      <button id="pidRead" disabled>Read</button>
+      <button id="pidApply" class="primary" disabled>Apply</button>
+    </div>
+    <div class="pid-presets">
+      <span class="status">Presets:</span>
+      <button data-kp="0.238" data-ki="0" data-kd="3.0">Default (0.238 / 0 / 3.0)</button>
+      <button data-kp="0.119" data-ki="0" data-kd="3.0">Soft P</button>
+      <button data-kp="0.238" data-ki="0.02" data-kd="3.0">With I-term</button>
+      <button data-kp="0.4" data-ki="0" data-kd="10.0">Aggressive</button>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="internalsChk" />
+      <label for="internalsChk">Log servo internals (<code>ptp servo log internals on/off</code>)</label>
+    </div>
+    <div id="pidStatus" class="pid-status"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Offset &Delta;t [ns] over time</h2>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>History</h2>
+    <div class="table-wrap">
+      <table id="histTable">
+        <thead><tr id="histHead"></tr></thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Raw console</h2>
+    <div id="raw"></div>
+    <div class="cmd-row">
+      <input id="cmdInput" placeholder="Type a CLI command (e.g. ptp log def on) and press Enter" />
+      <button id="sendBtn" disabled>Send</button>
+    </div>
+  </div>
+  </div><!-- /tab-monitor -->
+
+  <div id="tab-about" class="tabpage about" hidden>
+    <div class="panel">
+      <h2>What this demo shows</h2>
+      <p>This board runs <b>gPTP (IEEE&nbsp;802.1AS)</b> time synchronization over a
+      <b>10BASE-T1S</b> single-pair Ethernet link. Several nodes share one multidrop bus
+      using PLCA; one node acts as the <b>grandmaster</b> clock and the others discipline
+      their local clocks to it. The goal is sub-microsecond time alignment across all
+      nodes, shown live in the <b>Live Monitor</b> tab.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Roles &amp; topology</h2>
+      <ul>
+        <li><b>Node&nbsp;0 &mdash; Grandmaster (master):</b> owns the reference clock and
+        periodically sends <code>Sync</code> / <code>Follow_Up</code> messages (~every 125&nbsp;ms).</li>
+        <li><b>Nodes&nbsp;1..N &mdash; Slaves:</b> receive Sync, measure their offset from the
+        master and steer their own clock to match.</li>
+        <li>The T1S PLCA node ID is read from flash at boot and determines the role.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2>How a slave locks on</h2>
+      <p>Each slave measures the time error &Delta;t between its clock and the master. A
+      <b>PID servo</b> then computes a frequency correction (<code>corr_ppb</code>) that is
+      written to the hardware clock rate register (<code>addend</code>). Over a few seconds
+      the offset converges toward zero and the clock stays locked. A corrected 1&nbsp;PPS
+      output toggles <b>LED10</b> once per second &mdash; in sync across all locked nodes.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Reading the Monitor</h2>
+      <ul>
+        <li><b>&Delta;t offset</b> &mdash; current time error; trends to ~0&nbsp;ns once locked.
+        Hover any card for a description.</li>
+        <li><b>addend</b> &mdash; clock rate word the servo tunes.</li>
+        <li><b>corr_ppb</b> &mdash; servo output in parts-per-billion.</li>
+        <li><b>mpd_ns</b> &mdash; measured link (path) delay.</li>
+        <li><b>sync_period</b> &mdash; interval between Sync messages (~125&nbsp;ms).</li>
+        <li>The chart plots &Delta;t on a fixed &plusmn;200&nbsp;ns scale; the table keeps recent raw rows.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h2>Tuning the servo (PID)</h2>
+      <p>The <b>PID servo settings</b> panel reads and changes the servo gains live via
+      <code>ptp servo params Kp Ki Kd</code>. A larger <code>Kp</code> reacts faster but can
+      overshoot; <code>Kd</code> adds damping; <code>Ki</code> removes steady-state bias.
+      Start from a preset and watch the offset chart respond.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Getting started</h2>
+      <ol>
+        <li>Connect the board over <b>Bluetooth Low Energy</b> and click <b>Connect</b>, then pick the board in the pairing dialog.</li>
+        <li>Click <b>Start Sync + Log</b> to arm synchronization (<code>ptp sync</code>) and stream the per-Sync table (<code>ptp log def on</code>).</li>
+        <li>Watch the &Delta;t offset converge; adjust the PID gains if desired.</li>
+      </ol>
+    </div>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+// Column layout of the slave "ptp log def" table (11 integer fields).
+const FIELDS = [
+  { key: "t1s",    label: "T1 [s]",         unit: "s"    },
+  { key: "t1ns",   label: "T1 [ns]",        unit: "ns"   },
+  { key: "t4s",    label: "T4 [s]",         unit: "s"    },
+  { key: "t4ns",   label: "T4 [ns]",        unit: "ns"   },
+  { key: "dts",    label: "\u0394t [s]",    unit: "s"    },
+  { key: "dtns",   label: "\u0394t [ns]",   unit: "ns", hl: true },
+  { key: "dttick", label: "\u0394t [tick]", unit: "tick" },
+  { key: "addend", label: "addend",         unit: "",   hide: true },
+  { key: "corr",   label: "corr_ppb",       unit: "ppb"  },
+  { key: "mpd",    label: "mpd_ns",         unit: "ns"   },
+  { key: "sync",   label: "sync_period_ns", unit: "ns"   },
+];
+
+// Sliding window for the |max error| Î”t card.
+const ERR_WINDOW_S = 10;
+const ERR_WINDOW_MS = ERR_WINDOW_S * 1000;
+
+// Consolidated dashboard cards with tooltips.
+const CARDS = [
+  { id: "dt", label: "\u0394t offset", unit: "ns", hl: true,
+    tip: "\u0394t \u2014 measured time offset of the slave relative to the master. The servo drives this toward 0 ns.",
+    render: (r) => (r.dts !== 0 ? `${r.dts} s ` : "") + r.dtns.toLocaleString() },
+  { id: "dtmaxerr", label: `Peak |\u0394t| (${ERR_WINDOW_S} s)`, unit: "ns", hl: true,
+    tip: `Largest absolute \u0394t offset seen within the last ${ERR_WINDOW_S} seconds.`,
+    render: () => {
+      const now = performance.now();
+      const win = history.filter((h) => now - h._t <= ERR_WINDOW_MS);
+      if (!win.length) return "--";
+      const maxAbs = win.reduce((m, h) => Math.max(m, Math.abs(h.dtns)), 0);
+      return maxAbs.toLocaleString();
+    } },
+  { id: "dttick", label: "\u0394t [tick]", unit: "tick",
+    tip: "The \u0394t offset expressed in hardware clock ticks (PTP_CLOCK_TICK_FREQ_HZ).",
+    render: (r) => r.dttick.toLocaleString() },
+  { id: "corr", label: "corr_ppb", unit: "ppb",
+    tip: "PID servo frequency-correction output, in parts-per-billion.",
+    render: (r) => r.corr.toLocaleString() },
+  { id: "mpd", label: "mpd_ns", unit: "ns",
+    tip: "Mean path delay (peer-to-peer link delay) between master and slave, in nanoseconds.",
+    render: (r) => r.mpd.toLocaleString() },
+  { id: "sync", label: "sync_period", unit: "ms",
+    tip: "Measured interval between consecutive Sync messages, in milliseconds (nominal ~125 ms).",
+    render: (r) => (r.sync / 1e6).toFixed(3) },
+];
+const MAX_HISTORY = 200;
+const MAX_CHART = 300;
+
+const $ = (id) => document.getElementById(id);
+
+// DSD TECH HM-10 (CC254x) transparent serial bridge:
+// one FFE0 service with a single FFE1 characteristic used for both notify (RX) and write (TX).
+const HM10_SERVICE = 0xffe0;
+const HM10_CHAR    = 0xffe1;
+
+let device = null, server = null, serialChar = null;
+const history = [];
+const chartData = [];
+
+/* ---------- UI build ---------- */
+function buildCards() {
+  const c = $("cards");
+  c.innerHTML = "";
+  for (const cd of CARDS) {
+    const el = document.createElement("div");
+    el.className = "card" + (cd.hl ? " hl" : "");
+    el.title = cd.tip; // native tooltip fallback
+    el.innerHTML =
+      `<span class="info">i</span>` +
+      `<div class="tip">${cd.tip}</div>` +
+      `<div class="label">${cd.label}</div>` +
+      `<div class="value"><span id="c_${cd.id}">--</span>` +
+      (cd.unit ? `<span class="unit">${cd.unit}</span>` : "") + `</div>`;
+    c.appendChild(el);
+  }
+  const head = $("histHead");
+  head.innerHTML = "<th>#</th>" + FIELDS.filter((f) => !f.hide).map((f) => `<th>${f.label}</th>`).join("");
+}
+
+/* ---------- Bluetooth ---------- */
+async function connect() {
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [HM10_SERVICE] }],
+      optionalServices: [HM10_SERVICE],
+    });
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    server = await device.gatt.connect();
+    const service = await server.getPrimaryService(HM10_SERVICE);
+    serialChar = await service.getCharacteristic(HM10_CHAR);
+    await serialChar.startNotifications();
+    serialChar.addEventListener("characteristicvaluechanged", onNotify);
+    setConnected(true);
+  } catch (e) {
+    appendRaw("[connect error] " + e.message + "\n");
+    setConnected(false);
+  }
+}
+
+async function disconnect() {
+  try {
+    if (serialChar) {
+      serialChar.removeEventListener("characteristicvaluechanged", onNotify);
+      await serialChar.stopNotifications();
+    }
+  } catch (e) {}
+  try { if (device && device.gatt.connected) device.gatt.disconnect(); } catch (e) {}
+  device = null; server = null; serialChar = null;
+  setConnected(false);
+}
+
+function onDisconnected() {
+  appendRaw("[disconnected]\n");
+  device = null; server = null; serialChar = null;
+  setConnected(false);
+}
+
+/* ---------- Receive (GATT notifications) ---------- */
+const rxDecoder = new TextDecoder();
+let rxBuffer = "";
+function onNotify(e) {
+  rxBuffer += rxDecoder.decode(e.target.value, { stream: true });
+  let idx;
+  while ((idx = rxBuffer.indexOf("\n")) >= 0) {
+    handleLine(rxBuffer.slice(0, idx));
+    rxBuffer = rxBuffer.slice(idx + 1);
+  }
+}
+
+async function send(text) {
+  if (!serialChar) return;
+  const data = new TextEncoder().encode(text);
+  // HM-10 relays up to 20 bytes per BLE packet; split longer writes.
+  const CHUNK = 20;
+  for (let i = 0; i < data.length; i += CHUNK) {
+    const slice = data.slice(i, i + CHUNK);
+    try {
+      if (serialChar.writeValueWithoutResponse) {
+        await serialChar.writeValueWithoutResponse(slice);
+      } else {
+        await serialChar.writeValue(slice);
+      }
+    } catch (e) {
+      appendRaw("[write error] " + e.message + "\n");
+      return;
+    }
+  }
+}
+
+/* ---------- Parsing ---------- */
+// Match any ANSI/VT100 escape sequence (color, cursor save/restore \x1b[s \x1b[u, etc.).
+const ANSI = /\x1b(?:\[[0-9;?]*[ -\/]*[@-~]|[@-Z\\-_])/g;
+// Match the "ptp servo params" query/echo response.
+const PID_RE = /K_p\s*=\s*(-?[\d.]+)[^]*?K_i\s*=\s*(-?[\d.]+)[^]*?K_d\s*=\s*(-?[\d.]+)/;
+
+function handleLine(raw) {
+  // Strip escape sequences, then any remaining control chars (keep tab).
+  const clean = raw.replace(ANSI, "").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+  appendRaw(clean + "\n");
+
+  // PID params response -> populate the editor fields.
+  const pm = clean.match(PID_RE);
+  if (pm) {
+    $("pidKp").value = pm[1];
+    $("pidKi").value = pm[2];
+    $("pidKd").value = pm[3];
+    setPidStatus(`Read back: Kp=${pm[1]} Ki=${pm[2]} Kd=${pm[3]}`, "ok");
+    return;
+  }
+
+  // Drop CLI prompt(s) and surrounding whitespace.
+  const line = clean.replace(/^[>\s]+/, "").trim();
+  if (!line) return;
+  const parts = line.split(/\s+/);
+  if (parts.length === FIELDS.length && parts.every((p) => /^-?\d+$/.test(p))) {
+    updateData(parts.map(Number));
+  }
+}
+
+function updateData(vals) {
+  const row = {};
+  FIELDS.forEach((f, i) => { row[f.key] = vals[i]; });
+  row._t = performance.now();
+
+  history.unshift(row);
+  if (history.length > MAX_HISTORY) history.pop();
+
+  CARDS.forEach((cd) => { $("c_" + cd.id).textContent = cd.render(row); });
+  // Color the offset card by magnitude.
+  const dtCard = $("c_dt").closest(".card");
+  const a = Math.abs(row.dtns);
+  dtCard.style.borderColor = a < 200 ? "var(--green)" : a < 2000 ? "var(--yellow)" : "var(--red)";
+
+  chartData.push(row.dtns);
+  if (chartData.length > MAX_CHART) chartData.shift();
+  renderHistory();
+  drawChart();
+}
+
+/* ---------- History table ---------- */
+let rowCounter = 0;
+function renderHistory() {
+  rowCounter++;
+  const body = $("histBody");
+  const tr = document.createElement("tr");
+  const r = history[0];
+  tr.innerHTML = `<td>${rowCounter}</td>` +
+    FIELDS.filter((f) => !f.hide).map((f) => `<td>${r[f.key].toLocaleString()}</td>`).join("");
+  body.prepend(tr);
+  while (body.children.length > MAX_HISTORY) body.removeChild(body.lastChild);
+}
+
+/* ---------- Chart ---------- */
+function drawChart() {
+  const cv = $("chart");
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  if (chartData.length < 2) return;
+
+  const pad = 30;
+  // Fixed Y-axis scale: +/- 200 ns.
+  const min = -200, max = 200;
+  const range = max - min;
+  const x = (i) => pad + (i / (chartData.length - 1)) * (w - pad - 8);
+  const y = (v) => {
+    const c = Math.max(min, Math.min(max, v));
+    return pad + (1 - (c - min) / range) * (h - pad - 20);
+  };
+
+  // zero line
+  if (min < 0 && max > 0) {
+    ctx.strokeStyle = "#c9ccd4"; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(w - 8, y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // axis labels
+  ctx.fillStyle = "#6b7280"; ctx.font = "11px monospace";
+  ctx.fillText(max.toLocaleString() + " ns", 4, pad);
+  ctx.fillText(min.toLocaleString() + " ns", 4, h - 8);
+
+  // line
+  ctx.strokeStyle = "#2a289d"; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  chartData.forEach((v, i) => { i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)); });
+  ctx.stroke();
+
+  // last point
+  const li = chartData.length - 1;
+  ctx.fillStyle = "#d13438";
+  ctx.beginPath(); ctx.arc(x(li), y(chartData[li]), 3, 0, Math.PI * 2); ctx.fill();
+}
+
+/* ---------- Raw console ---------- */
+function appendRaw(text) {
+  const el = $("raw");
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+  el.textContent += text;
+  if (el.textContent.length > 20000) el.textContent = el.textContent.slice(-15000);
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- PID ---------- */
+function setPidStatus(msg, cls) {
+  const el = $("pidStatus");
+  el.textContent = msg;
+  el.className = "pid-status" + (cls ? " " + cls : "");
+}
+
+function pidRead() {
+  setPidStatus("Reading current parameters\u2026");
+  send("ptp servo params\r\n");
+}
+
+function pidApply() {
+  const kp = parseFloat($("pidKp").value);
+  const ki = parseFloat($("pidKi").value);
+  const kd = parseFloat($("pidKd").value);
+  if ([kp, ki, kd].some((v) => Number.isNaN(v))) {
+    setPidStatus("Invalid Kp/Ki/Kd value", "err");
+    return;
+  }
+  send(`ptp servo params ${kp} ${ki} ${kd}\r\n`);
+  setPidStatus(`Applied Kp=${kp} Ki=${ki} Kd=${kd}`, "ok");
+}
+
+/* ---------- State ---------- */
+function setConnected(on) {
+  $("dot").classList.toggle("on", on);
+  $("statusText").textContent = on ? "Connected" : "Disconnected";
+  $("connectBtn").textContent = on ? "Disconnect" : "Connect";
+  $("connectBtn").classList.toggle("primary", !on);
+  $("connectBtn").classList.toggle("danger", on);
+  $("logBtn").disabled = !on;
+  $("sendBtn").disabled = !on;
+  $("pidRead").disabled = !on;
+  $("pidApply").disabled = !on;
+}
+
+/* ---------- Wire up ---------- */
+window.addEventListener("load", () => {
+  buildCards();
+  if (!("bluetooth" in navigator)) {
+    $("unsupported").style.display = "block";
+    $("connectBtn").disabled = true;
+    return;
+  }
+  $("connectBtn").addEventListener("click", () => (device ? disconnect() : connect()));
+  $("logBtn").addEventListener("click", async () => {
+    // Arm synchronization (same as the physical sync button), then start logging.
+    await send("ptp sync\r\n");
+    await send("ptp log def on\r\n");
+  });
+  $("clearBtn").addEventListener("click", () => {
+    history.length = 0; chartData.length = 0; rowCounter = 0;
+    $("histBody").innerHTML = ""; $("raw").textContent = "";
+    CARDS.forEach((cd) => ($("c_" + cd.id).textContent = "--"));
+    drawChart();
+  });
+  $("sendBtn").addEventListener("click", sendCmd);
+  $("cmdInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendCmd(); });
+  $("pidRead").addEventListener("click", pidRead);
+  $("pidApply").addEventListener("click", pidApply);
+  $("internalsChk").addEventListener("change", (e) =>
+    send("ptp servo log internals " + (e.target.checked ? "on" : "off") + "\r\n"));
+  document.querySelectorAll(".pid-presets button").forEach((b) =>
+    b.addEventListener("click", () => {
+      $("pidKp").value = b.dataset.kp;
+      $("pidKi").value = b.dataset.ki;
+      $("pidKd").value = b.dataset.kd;
+      setPidStatus("Preset loaded \u2014 click Apply to send", "");
+    }));
+  document.querySelectorAll(".tab").forEach((t) =>
+    t.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
+      document.querySelectorAll(".tabpage").forEach((p) => (p.hidden = p.id !== "tab-" + t.dataset.tab));
+      if (t.dataset.tab === "monitor") drawChart();
+    }));
+  window.addEventListener("resize", drawChart);
+});
+
+function sendCmd() {
+  const inp = $("cmdInput");
+  const v = inp.value.trim();
+  if (!v) return;
+  send(v + "\r\n");
+  inp.value = "";
+}
+</script>
+</body>
+</html>
